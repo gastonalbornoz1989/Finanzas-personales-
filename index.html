@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"/>
+<meta name="theme-color" content="#0f172a"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="Finanzas"/>
+<title>Mis Finanzas</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0f172a;color:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,system-ui,sans-serif;overscroll-behavior:none;-webkit-tap-highlight-color:transparent}
+select,input,button{font-family:inherit}
+body::-webkit-scrollbar{display:none}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/recharts@2.8.0/umd/Recharts.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script>
+// PWA Manifest inline
+try{
+  const m={name:'Mis Finanzas',short_name:'Finanzas',start_url:'.',display:'standalone',background_color:'#0f172a',theme_color:'#0f172a',
+    icons:[{src:"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%230f172a'/%3E%3Ctext y='.9em' font-size='80'%3E%F0%9F%92%B0%3C/text%3E%3C/svg%3E",sizes:'any',type:'image/svg+xml'}]};
+  const bl=new Blob([JSON.stringify(m)],{type:'application/json'});
+  const lk=document.createElement('link');lk.rel='manifest';lk.href=URL.createObjectURL(bl);
+  document.head.appendChild(lk);
+}catch(e){}
+</script>
+<script type="text/babel">
+const {useState,useEffect,useRef}=React;
+const {PieChart,Pie,Cell,Tooltip,BarChart,Bar,XAxis,YAxis,ResponsiveContainer}=Recharts;
+
+const MN=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+const SM=['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+const DN=['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+
+const CATS0={
+  income:[
+    {id:'i1',name:'Consultora',color:'#22c55e',icon:'💼'},
+    {id:'i2',name:'Música',color:'#3b82f6',icon:'🎸'},
+    {id:'i3',name:'Certificados/Planos',color:'#a855f7',icon:'📋'},
+    {id:'i4',name:'Otros ingresos',color:'#f59e0b',icon:'💰'},
+  ],
+  expense:[
+    {id:'e1',name:'Vivienda',color:'#ef4444',icon:'🏠',limit:null},
+    {id:'e2',name:'Alimentación',color:'#f97316',icon:'🛒',limit:null},
+    {id:'e3',name:'Transporte',color:'#eab308',icon:'🚗',limit:null},
+    {id:'e4',name:'Salud',color:'#ec4899',icon:'💊',limit:null},
+    {id:'e5',name:'Ropa',color:'#8b5cf6',icon:'👕',limit:null},
+    {id:'e6',name:'Ocio',color:'#6366f1',icon:'🎉',limit:null},
+    {id:'e7',name:'Restaurantes',color:'#14b8a6',icon:'🍔',limit:null},
+    {id:'e8',name:'Tecnología/Subs',color:'#06b6d4',icon:'💻',limit:null},
+    {id:'e9',name:'Educación',color:'#10b981',icon:'📚',limit:null},
+    {id:'e10',name:'Hogar',color:'#84cc16',icon:'🔧',limit:null},
+    {id:'e11',name:'Impuestos',color:'#facc15',icon:'📄',limit:null},
+    {id:'e12',name:'Gastos laborales',color:'#fb923c',icon:'🧾',limit:null},
+    {id:'e13',name:'Otros gastos',color:'#94a3b8',icon:'📦',limit:null},
+  ],
+  saving:[
+    {id:'s1',name:'Dólares/Divisas',color:'#22c55e',icon:'💵'},
+    {id:'s2',name:'Plazo fijo',color:'#3b82f6',icon:'🏦'},
+    {id:'s3',name:'Cripto',color:'#f59e0b',icon:'₿'},
+    {id:'s4',name:'Otros ahorros',color:'#a855f7',icon:'🏆'},
+  ]
+};
+
+const gid=()=>Math.random().toString(36).slice(2,10);
+const fmtN=n=>new Intl.NumberFormat('es-AR',{maximumFractionDigits:0}).format(n);
+const todayStr=()=>{const d=new Date();return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;};
+const store={
+  get:k=>{try{return localStorage.getItem(k);}catch(e){return null;}},
+  set:(k,v)=>{try{localStorage.setItem(k,v);}catch(e){}}
+};
+
+const BG='#0f172a',CARD='#1e293b',BORDER='#334155',MUTED='#64748b',TEXT='#f1f5f9',SUB='#94a3b8';
+const INP={background:BG,border:'1px solid '+BORDER,borderRadius:8,padding:'10px 12px',color:TEXT,fontSize:15,width:'100%',boxSizing:'border-box',outline:'none'};
+
+function exportToExcel(txs,cats){
+  if(!txs.length){alert('No hay movimientos para exportar.');return;}
+  const X=window.XLSX;if(!X){alert('XLSX no cargó todavía, intentá de nuevo.');return;}
+  const allCats=[...cats.income,...cats.expense,...cats.saving];
+  const getCN=id=>allCats.find(c=>c.id===id)?.name||'Sin categoría';
+  const TL={income:'Ingreso',expense:'Egreso',saving:'Ahorro/Inversión'};
+  const rows=txs.slice().sort((a,b)=>b.date.localeCompare(a.date)).map(t=>({
+    Fecha:t.date,Tipo:TL[t.type]||t.type,Categoría:getCN(t.catId),Descripción:t.desc||'',Monto:t.amount,Tarjeta:t.fromCard?t.card:'',
+  }));
+  const mData={};
+  txs.forEach(t=>{
+    const d=new Date(t.date+'T12:00');
+    const k=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    if(!mData[k])mData[k]={Mes:MN[d.getMonth()]+' '+d.getFullYear(),Ingresos:0,Egresos:0,Ahorros:0};
+    if(t.type==='income')mData[k].Ingresos+=t.amount;
+    if(t.type==='expense')mData[k].Egresos+=t.amount;
+    if(t.type==='saving')mData[k].Ahorros+=t.amount;
+  });
+  const summary=Object.entries(mData).sort((a,b)=>a[0].localeCompare(b[0])).map(([,m])=>({...m,Balance:m.Ingresos-m.Egresos-m.Ahorros}));
+  const wb=X.utils.book_new();
+  const ws1=X.utils.json_to_sheet(rows);
+  const ws2=X.utils.json_to_sheet(summary);
+  ws1['!cols']=[{wch:12},{wch:18},{wch:22},{wch:30},{wch:14},{wch:12}];
+  ws2['!cols']=[{wch:18},{wch:16},{wch:16},{wch:16},{wch:16}];
+  X.utils.book_append_sheet(wb,'Movimientos',ws1);
+  X.utils.book_append_sheet(wb,'Resumen mensual',ws2);
+  X.writeFile(wb,`Finanzas_${todayStr()}.xlsx`);
+}
+
+// ── AddModal ──────────────────────────────────────────────────────────────────
+function AddModal({type,cats,onSave,onClose}){
+  const [amount,setAmount]=useState('');
+  const [catId,setCatId]=useState(cats[type][0]?.id||'');
+  const [desc,setDesc]=useState('');
+  const [date,setDate]=useState(todayStr());
+  const [fromCard,setFromCard]=useState(false);
+  const [card,setCard]=useState('VISA');
+  const ref=useRef();
+  useEffect(()=>{setTimeout(()=>ref.current?.focus(),100);},[]);
+  const TC={income:'#22c55e',expense:'#ef4444',saving:'#3b82f6'};
+  const TL={income:'Ingreso',expense:'Egreso',saving:'Ahorro / Inversión'};
+  const save=()=>{
+    const amt=parseFloat(String(amount).replace(',','.'));
+    if(!amt||amt<=0||!catId)return;
+    onSave({type,catId,amount:amt,desc:desc.trim(),date,fromCard:type==='expense'?fromCard:false,card:fromCard?card:null});
+  };
+  return(
+    <div onClick={e=>{if(e.target===e.currentTarget)onClose();}} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:100,display:'flex',alignItems:'flex-end'}}>
+      <div style={{background:CARD,borderRadius:'20px 20px 0 0',padding:24,width:'100%',boxSizing:'border-box',maxHeight:'92vh',overflowY:'auto',paddingBottom:'max(24px,env(safe-area-inset-bottom))'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+          <div style={{fontWeight:800,fontSize:18}}><span style={{color:TC[type]}}>●</span> {TL[type]}</div>
+          <button onClick={onClose} style={{background:'none',border:'none',color:SUB,fontSize:22,cursor:'pointer',padding:0}}>✕</button>
+        </div>
+        <div style={{display:'flex',flexDirection:'column',gap:14}}>
+          <div>
+            <label style={{fontSize:11,color:SUB,letterSpacing:1,display:'block',marginBottom:4}}>MONTO *</label>
+            <input ref={ref} type="number" inputMode="decimal" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="0" style={{...INP,fontSize:32,fontWeight:800,textAlign:'center',color:TC[type],padding:'12px'}}/>
+          </div>
+          <div>
+            <label style={{fontSize:11,color:SUB,letterSpacing:1,display:'block',marginBottom:4}}>CATEGORÍA *</label>
+            <select value={catId} onChange={e=>setCatId(e.target.value)} style={{...INP,fontSize:14}}>
+              {cats[type].map(c=><option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={{fontSize:11,color:SUB,letterSpacing:1,display:'block',marginBottom:4}}>DESCRIPCIÓN</label>
+            <input value={desc} onChange={e=>setDesc(e.target.value)} placeholder="Opcional..." style={INP}/>
+          </div>
+          <div>
+            <label style={{fontSize:11,color:SUB,letterSpacing:1,display:'block',marginBottom:4}}>FECHA</label>
+            <input type="date" value={date} onChange={e=>setDate(e.target.value)} style={INP}/>
+          </div>
+          {type==='expense'&&(
+            <div style={{background:BG,borderRadius:8,padding:'10px 14px',display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+              <input type="checkbox" id="fc" checked={fromCard} onChange={e=>setFromCard(e.target.checked)} style={{width:18,height:18,cursor:'pointer'}}/>
+              <label htmlFor="fc" style={{cursor:'pointer',fontSize:14,flex:1}}>💳 Gasto de tarjeta</label>
+              {fromCard&&<select value={card} onChange={e=>setCard(e.target.value)} style={{...INP,width:'auto',padding:'6px 10px',fontSize:13}}>
+                <option>VISA</option><option>Mastercard</option>
+              </select>}
+            </div>
+          )}
+          <button onClick={save} style={{background:TC[type],color:'white',border:'none',borderRadius:10,padding:14,fontSize:16,fontWeight:700,cursor:'pointer',marginTop:4}}>Guardar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── TxItem ────────────────────────────────────────────────────────────────────
+function TxItem({tx,getCat,onDel}){
+  const c=getCat(tx.catId);
+  const col=tx.type==='income'?'#22c55e':tx.type==='saving'?'#3b82f6':'#ef4444';
+  const [confirm,setConfirm]=useState(false);
+  const d=new Date(tx.date+'T12:00');
+  return(
+    <div style={{display:'flex',alignItems:'center',padding:'10px 0',borderBottom:'1px solid '+BORDER}}>
+      <div style={{width:40,height:40,borderRadius:'50%',background:c.color+'22',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,marginRight:12,flexShrink:0}}>{c.icon}</div>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontWeight:600,fontSize:14,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{tx.desc||c.name}</div>
+        <div style={{fontSize:11,color:MUTED}}>{c.name} · {d.toLocaleDateString('es-AR',{day:'2-digit',month:'short'})}{tx.fromCard?` · 💳 ${tx.card}`:''}</div>
+      </div>
+      <div style={{textAlign:'right',marginLeft:8,flexShrink:0}}>
+        <div style={{fontWeight:700,color:col,fontSize:14}}>{tx.type==='income'?'+':'−'}${fmtN(tx.amount)}</div>
+        {confirm?(
+          <div style={{display:'flex',gap:5,marginTop:3}}>
+            <button onClick={()=>onDel(tx.id)} style={{background:'#ef4444',border:'none',color:'white',borderRadius:4,padding:'2px 8px',cursor:'pointer',fontSize:11}}>Sí</button>
+            <button onClick={()=>setConfirm(false)} style={{background:BORDER,border:'none',color:TEXT,borderRadius:4,padding:'2px 8px',cursor:'pointer',fontSize:11}}>No</button>
+          </div>
+        ):(
+          <button onClick={()=>setConfirm(true)} style={{background:'none',border:'none',color:MUTED,cursor:'pointer',fontSize:11,marginTop:2,padding:0}}>✕ borrar</button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── HomeTab ───────────────────────────────────────────────────────────────────
+function HomeTab({month,year,navMonth,txs,cats,getCat,onDel,onAdd,onExport}){
+  const now=new Date();
+  const inc=txs.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0);
+  const exp=txs.filter(t=>t.type==='expense').reduce((s,t)=>s+t.amount,0);
+  const sav=txs.filter(t=>t.type==='saving').reduce((s,t)=>s+t.amount,0);
+  const bal=inc-exp-sav;
+  const expMap={};
+  txs.filter(t=>t.type==='expense').forEach(t=>{expMap[t.catId]=(expMap[t.catId]||0)+t.amount;});
+  const pie=Object.entries(expMap).map(([id,v])=>{const c=getCat(id);return{name:c.name,value:v,color:c.color};}).sort((a,b)=>b.value-a.value).slice(0,8);
+  const warns=cats.expense.filter(c=>c.limit>0).map(c=>{
+    const spent=txs.filter(t=>t.type==='expense'&&t.catId===c.id).reduce((s,t)=>s+t.amount,0);
+    return{...c,spent,pct:Math.round(spent/c.limit*100)};
+  }).filter(a=>a.pct>=75);
+  const ADD_BTNS=[
+    {type:'income',label:'Ingreso',icon:'+',color:'#22c55e',bg:'#052e16'},
+    {type:'expense',label:'Egreso',icon:'−',color:'#ef4444',bg:'#2d0a0a'},
+    {type:'saving',label:'Ahorro',icon:'↺',color:'#38bdf8',bg:'#082f49'},
+  ];
+  return(
+    <div style={{padding:'0 16px'}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',padding:'16px 0 12px'}}>
+        <div>
+          <div style={{fontSize:13,color:SUB}}>{DN[now.getDay()]}, {now.getDate()} de {MN[now.getMonth()]}</div>
+          <div style={{display:'flex',alignItems:'center',gap:14,marginTop:6}}>
+            <button onClick={()=>navMonth(-1)} style={{background:'none',border:'none',color:SUB,fontSize:24,cursor:'pointer',padding:0,lineHeight:1}}>‹</button>
+            <span style={{fontWeight:800,fontSize:20}}>{MN[month]} {year}</span>
+            <button onClick={()=>navMonth(1)} style={{background:'none',border:'none',color:SUB,fontSize:24,cursor:'pointer',padding:0,lineHeight:1}}>›</button>
+          </div>
+        </div>
+        <button onClick={onExport} style={{background:'#14532d',border:'1px solid #16a34a',borderRadius:10,padding:'8px 12px',color:'#4ade80',fontWeight:700,fontSize:13,cursor:'pointer',display:'flex',alignItems:'center',gap:6,marginTop:8}}>
+          <span>📊</span> Excel
+        </button>
+      </div>
+      <div style={{background:'linear-gradient(135deg,#1d4ed8,#7c3aed)',borderRadius:18,padding:'20px 24px',marginBottom:14}}>
+        <div style={{fontSize:11,color:'rgba(255,255,255,0.6)',textTransform:'uppercase',letterSpacing:1.5}}>Balance del mes</div>
+        <div style={{fontSize:38,fontWeight:900,color:bal>=0?'#86efac':'#fca5a5',margin:'6px 0 18px'}}>{bal<0?'−':''} ${fmtN(Math.abs(bal))}</div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',textAlign:'center'}}>
+          {[['INGRESOS',inc,'#86efac'],['EGRESOS',exp,'#fca5a5'],['AHORROS',sav,'#93c5fd']].map(([l,v,col])=>(
+            <div key={l}>
+              <div style={{fontSize:10,color:'rgba(255,255,255,0.5)',marginBottom:2}}>{l}</div>
+              <div style={{fontWeight:700,color:col,fontSize:15}}>${fmtN(v)}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10,marginBottom:16}}>
+        {ADD_BTNS.map(({type,label,icon,color,bg})=>(
+          <button key={type} onClick={()=>onAdd({type})} style={{background:bg,border:`1.5px solid ${color}55`,borderRadius:14,padding:'14px 8px',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:6,outline:'none'}}>
+            <div style={{width:40,height:40,borderRadius:'50%',background:color+'22',border:`1.5px solid ${color}66`,display:'flex',alignItems:'center',justifyContent:'center',color,fontSize:22,lineHeight:1}}>{icon}</div>
+            <span style={{color,fontWeight:700,fontSize:13}}>{label}</span>
+          </button>
+        ))}
+      </div>
+      {warns.map(w=>(
+        <div key={w.id} style={{background:'#431407',border:'1px solid #c2410c',borderRadius:10,padding:'10px 14px',marginBottom:10,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+          <span style={{fontSize:14}}>{w.icon} {w.name}</span>
+          <div style={{textAlign:'right'}}>
+            <div style={{color:w.pct>=100?'#f87171':'#fb923c',fontWeight:700}}>{w.pct}%</div>
+            <div style={{fontSize:11,color:MUTED}}>${fmtN(w.spent)} / ${fmtN(w.limit)}</div>
+          </div>
+        </div>
+      ))}
+      {pie.length>0&&(
+        <div style={{background:CARD,borderRadius:12,padding:'16px',marginBottom:16}}>
+          <div style={{fontWeight:700,marginBottom:8,fontSize:15}}>Gastos por categoría</div>
+          <ResponsiveContainer width="100%" height={195}>
+            <PieChart>
+              <Pie data={pie} cx="50%" cy="50%" innerRadius={52} outerRadius={88} dataKey="value" paddingAngle={2}>
+                {pie.map((e,i)=><Cell key={i} fill={e.color}/>)}
+              </Pie>
+              <Tooltip formatter={(v,name)=>[`$${fmtN(v)}`,name]} contentStyle={{background:'#0f172a',border:'1px solid #6366f1',borderRadius:10,color:'#f1f5f9',fontSize:13,fontWeight:600}} labelStyle={{color:'#f1f5f9'}} itemStyle={{color:'#f1f5f9'}}/>
+            </PieChart>
+          </ResponsiveContainer>
+          <div style={{display:'flex',flexWrap:'wrap',gap:'4px 14px'}}>
+            {pie.map((e,i)=>(
+              <div key={i} style={{display:'flex',alignItems:'center',gap:5,fontSize:12}}>
+                <div style={{width:8,height:8,borderRadius:'50%',background:e.color,flexShrink:0}}/>
+                <span style={{color:SUB}}>{e.name}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {txs.length>0?(
+        <div style={{background:CARD,borderRadius:12,padding:'14px 16px',marginBottom:16}}>
+          <div style={{fontWeight:700,marginBottom:10,fontSize:15}}>Últimos movimientos</div>
+          {txs.slice(0,5).map(t=><TxItem key={t.id} tx={t} getCat={getCat} onDel={onDel}/>)}
+        </div>
+      ):(
+        <div style={{textAlign:'center',padding:'40px 0',color:MUTED}}>
+          <div style={{fontSize:52,marginBottom:14}}>💳</div>
+          <div style={{fontSize:16,fontWeight:600,color:SUB}}>Sin movimientos este mes</div>
+          <div style={{fontSize:13,marginTop:6}}>Usá los botones de arriba para agregar</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── TxsTab ────────────────────────────────────────────────────────────────────
+function TxsTab({month,year,navMonth,txs,getCat,onDel}){
+  const [filter,setFilter]=useState('all');
+  const shown=(filter==='all'?txs:txs.filter(t=>t.type===filter)).slice().sort((a,b)=>b.date.localeCompare(a.date));
+  const groups={};
+  shown.forEach(t=>{if(!groups[t.date])groups[t.date]=[];groups[t.date].push(t);});
+  return(
+    <div style={{padding:'0 16px'}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:20,padding:'16px 0 12px'}}>
+        <button onClick={()=>navMonth(-1)} style={{background:'none',border:'none',color:SUB,fontSize:26,cursor:'pointer',padding:0}}>‹</button>
+        <span style={{fontWeight:800,fontSize:18}}>{MN[month]} {year}</span>
+        <button onClick={()=>navMonth(1)} style={{background:'none',border:'none',color:SUB,fontSize:26,cursor:'pointer',padding:0}}>›</button>
+      </div>
+      <div style={{display:'flex',gap:8,marginBottom:16,overflowX:'auto',paddingBottom:4}}>
+        {[['all','Todos','#64748b'],['income','Ingresos','#22c55e'],['expense','Egresos','#ef4444'],['saving','Ahorros','#3b82f6']].map(([v,l,col])=>(
+          <button key={v} onClick={()=>setFilter(v)} style={{background:filter===v?col:CARD,color:filter===v?'white':SUB,border:'none',borderRadius:20,padding:'6px 14px',fontSize:13,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap',flexShrink:0}}>{l}</button>
+        ))}
+      </div>
+      {Object.keys(groups).length===0?(
+        <div style={{textAlign:'center',padding:'48px 0',color:MUTED}}>Sin movimientos</div>
+      ):Object.entries(groups).map(([date,items])=>(
+        <div key={date} style={{marginBottom:14}}>
+          <div style={{fontSize:11,color:SUB,fontWeight:700,marginBottom:6,textTransform:'uppercase',letterSpacing:.5}}>
+            {new Date(date+'T12:00').toLocaleDateString('es-AR',{weekday:'long',day:'numeric',month:'long'})}
+          </div>
+          <div style={{background:CARD,borderRadius:10,padding:'4px 14px'}}>
+            {items.map(t=><TxItem key={t.id} tx={t} getCat={getCat} onDel={onDel}/>)}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── StatsTab ──────────────────────────────────────────────────────────────────
+function StatsTab({txs,getCat,onExport}){
+  const mData={};
+  txs.forEach(t=>{
+    const d=new Date(t.date+'T12:00');
+    const k=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    if(!mData[k])mData[k]={income:0,expense:0,saving:0};
+    mData[k][t.type]+=t.amount;
+  });
+  const months=Object.keys(mData).sort().map(k=>{const[y,m]=k.split('-');return{key:k,label:`${SM[parseInt(m)-1]} ${y.slice(2)}`,...mData[k]};});
+  const n=months.length||1;
+  const avgI=months.reduce((s,m)=>s+m.income,0)/n;
+  const avgE=months.reduce((s,m)=>s+m.expense,0)/n;
+  const avgS=months.reduce((s,m)=>s+m.saving,0)/n;
+  const catT={};
+  txs.filter(t=>t.type==='expense').forEach(t=>{catT[t.catId]=(catT[t.catId]||0)+t.amount;});
+  const top=Object.entries(catT).map(([id,v])=>{const c=getCat(id);return{...c,total:v};}).sort((a,b)=>b.total-a.total).slice(0,7);
+  const SC=({label,value,color})=>(
+    <div style={{background:CARD,borderRadius:12,padding:'14px 16px',flex:1,minWidth:0}}>
+      <div style={{fontSize:10,color:SUB,textTransform:'uppercase',letterSpacing:1,marginBottom:4}}>{label}</div>
+      <div style={{fontSize:22,fontWeight:800,color}}>${fmtN(value)}</div>
+    </div>
+  );
+  return(
+    <div style={{padding:'16px'}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+        <div style={{fontWeight:800,fontSize:18}}>📊 Estadísticas</div>
+        <button onClick={onExport} style={{background:'#14532d',border:'1px solid #16a34a',borderRadius:10,padding:'8px 14px',color:'#4ade80',fontWeight:700,fontSize:13,cursor:'pointer',display:'flex',alignItems:'center',gap:6}}>
+          <span>📥</span> Excel
+        </button>
+      </div>
+      {months.length===0?(
+        <div style={{textAlign:'center',padding:'48px 0',color:MUTED}}>Cargá movimientos para ver estadísticas</div>
+      ):<>
+        <div style={{fontSize:12,color:SUB,marginBottom:10}}>Promedios · {n} {n===1?'mes':'meses'} con datos</div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:18}}>
+          <SC label="Ingreso prom." value={avgI} color="#22c55e"/>
+          <SC label="Gasto prom." value={avgE} color="#ef4444"/>
+          <SC label="Ahorro prom." value={avgS} color="#3b82f6"/>
+          <SC label="Balance prom." value={avgI-avgE-avgS} color={avgI-avgE-avgS>=0?'#22c55e':'#ef4444'}/>
+        </div>
+        {months.length>1&&(
+          <div style={{background:CARD,borderRadius:12,padding:'16px',marginBottom:16}}>
+            <div style={{fontWeight:700,marginBottom:14,fontSize:15}}>Evolución mensual</div>
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={months.slice(-6)} margin={{top:0,right:0,left:-24,bottom:0}}>
+                <XAxis dataKey="label" tick={{fill:SUB,fontSize:10}} axisLine={false} tickLine={false}/>
+                <YAxis tick={{fill:SUB,fontSize:9}} axisLine={false} tickLine={false} tickFormatter={v=>v>=1000000?`${(v/1000000).toFixed(1)}M`:v>=1000?`${(v/1000).toFixed(0)}k`:v}/>
+                <Tooltip formatter={v=>`$${fmtN(v)}`} contentStyle={{background:CARD,border:'1px solid '+BORDER,borderRadius:8,color:TEXT,fontSize:12}}/>
+                <Bar dataKey="income" name="Ingresos" fill="#22c55e" radius={[4,4,0,0]}/>
+                <Bar dataKey="expense" name="Egresos" fill="#ef4444" radius={[4,4,0,0]}/>
+                <Bar dataKey="saving" name="Ahorros" fill="#3b82f6" radius={[4,4,0,0]}/>
+              </BarChart>
+            </ResponsiveContainer>
+            <div style={{display:'flex',gap:16,justifyContent:'center',marginTop:8}}>
+              {[['Ingresos','#22c55e'],['Egresos','#ef4444'],['Ahorros','#3b82f6']].map(([l,c])=>(
+                <div key={l} style={{display:'flex',alignItems:'center',gap:5,fontSize:12,color:SUB}}>
+                  <div style={{width:10,height:10,borderRadius:2,background:c}}/>{l}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        {top.length>0&&(
+          <div style={{background:CARD,borderRadius:12,padding:'16px',marginBottom:16}}>
+            <div style={{fontWeight:700,marginBottom:14,fontSize:15}}>Top categorías de gasto</div>
+            {top.map((c,i)=>(
+              <div key={i} style={{marginBottom:12}}>
+                <div style={{display:'flex',justifyContent:'space-between',marginBottom:5,fontSize:14}}>
+                  <span>{c.icon} {c.name}</span>
+                  <span style={{fontWeight:700,color:c.color}}>${fmtN(c.total)}</span>
+                </div>
+                <div style={{background:'#1e293b',borderRadius:4,height:7}}>
+                  <div style={{background:c.color,height:7,borderRadius:4,width:`${c.total/top[0].total*100}%`,transition:'width .4s'}}/>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </>}
+    </div>
+  );
+}
+
+// ── CardTab ───────────────────────────────────────────────────────────────────
+function CardTab({cats,onConfirmAll,apiKey}){
+  const [cardType,setCardType]=useState('VISA');
+  const [pending,setPending]=useState([]);
+  const [analyzing,setAnalyzing]=useState(false);
+  const [error,setError]=useState('');
+  const fileRef=useRef();
+  const expCats=cats.expense;
+  const handleFile=async e=>{
+    const file=e.target.files[0];if(!file)return;
+    if(!apiKey){setError('Configurá tu API Key en ⚙️ Configuración para usar esta función.');return;}
+    setError('');setAnalyzing(true);setPending([]);
+    try{
+      const b64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(',')[1]);r.onerror=()=>rej();r.readAsDataURL(file);});
+      const resp=await fetch('https://api.anthropic.com/v1/messages',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+        body:JSON.stringify({
+          model:'claude-sonnet-4-20250514',max_tokens:2000,
+          system:`Analizá el resumen de tarjeta adjunto y extraé TODAS las compras. Devolvé SOLO un JSON array sin texto antes ni después: [{"desc":"comercio","amount":1234.56,"date":"2024-01-15","suggestedCat":"categoría"}]. Montos positivos, fechas YYYY-MM-DD (año actual si falta: ${new Date().getFullYear()}). NO incluyas pagos/ajustes/intereses/totales. Para suggestedCat elegí entre: Vivienda, Alimentación, Transporte, Salud, Ropa, Ocio, Restaurantes, Tecnología/Subs, Educación, Hogar, Impuestos, Gastos laborales, Otros gastos.`,
+          messages:[{role:'user',content:[{type:'document',source:{type:'base64',media_type:'application/pdf',data:b64}},{type:'text',text:`Extraé todas las compras del resumen ${cardType}. Solo el JSON array.`}]}]
+        })
+      });
+      const data=await resp.json();
+      if(data.error)throw new Error(data.error.message);
+      const raw=(data.content||[]).map(b=>b.text||'').join('');
+      const clean=raw.replace(/```json?|```/g,'').trim();
+      const s=clean.indexOf('['),end=clean.lastIndexOf(']');
+      const items=JSON.parse(clean.slice(s,end+1));
+      setPending(items.map(item=>{const m=expCats.find(c=>c.name.toLowerCase()===item.suggestedCat?.toLowerCase());return{...item,uid:gid(),catId:m?.id||'e13'};}));
+    }catch(err){setError('Error: '+err.message);}
+    setAnalyzing(false);if(fileRef.current)fileRef.current.value='';
+  };
+  const confirm=()=>{
+    onConfirmAll(pending.map(p=>({id:gid(),type:'expense',catId:p.catId,amount:p.amount,desc:p.desc,date:p.date,fromCard:true,card:cardType})));
+    setPending([]);
+  };
+  return(
+    <div style={{padding:'16px'}}>
+      <div style={{fontWeight:800,fontSize:18,marginBottom:4}}>💳 Analizar Tarjeta</div>
+      <div style={{color:SUB,fontSize:13,marginBottom:20}}>Subí el PDF del resumen y la IA extraerá y categorizará cada compra automáticamente</div>
+      {!apiKey&&<div style={{background:'#1e1b4b',border:'1px solid #6366f1',borderRadius:8,padding:'10px 14px',color:'#a5b4fc',fontSize:13,marginBottom:16}}>⚙️ Configurá tu API Key en Configuración para activar esta función.</div>}
+      <div style={{display:'flex',gap:10,marginBottom:16}}>
+        {[['VISA','💙','#1a56db'],['Mastercard','🔴','#b91c1c']].map(([c,ic,col])=>(
+          <button key={c} onClick={()=>setCardType(c)} style={{flex:1,background:cardType===c?col:CARD,color:'white',border:'none',borderRadius:10,padding:'12px',fontWeight:700,fontSize:15,cursor:'pointer'}}>{ic} {c}</button>
+        ))}
+      </div>
+      <button onClick={()=>fileRef.current?.click()} disabled={analyzing||!apiKey} style={{background:(analyzing||!apiKey)?BORDER:'#6366f1',color:'white',border:'none',borderRadius:10,padding:'14px',fontSize:15,fontWeight:700,cursor:(analyzing||!apiKey)?'default':'pointer',width:'100%',marginBottom:16,opacity:(analyzing||!apiKey)?.6:1}}>
+        {analyzing?'⏳ Analizando con IA...':'📄 Subir resumen PDF'}
+      </button>
+      <input ref={fileRef} type="file" accept=".pdf" onChange={handleFile} style={{display:'none'}}/>
+      {error&&<div style={{background:'#450a0a',border:'1px solid #ef4444',borderRadius:8,padding:'10px 14px',color:'#fca5a5',fontSize:13,marginBottom:16}}>{error}</div>}
+      {pending.length>0&&<>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
+          <div style={{fontWeight:700,fontSize:15}}>{pending.length} compras encontradas</div>
+          <button onClick={confirm} style={{background:'#22c55e',color:'white',border:'none',borderRadius:8,padding:'8px 14px',fontWeight:700,cursor:'pointer',fontSize:13}}>✓ Confirmar todas</button>
+        </div>
+        {pending.map((item,i)=>(
+          <div key={item.uid} style={{background:CARD,borderRadius:10,padding:'12px 14px',marginBottom:8}}>
+            <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}>
+              <div style={{fontWeight:600,fontSize:13,flex:1,marginRight:12}}>{item.desc}</div>
+              <div style={{fontWeight:800,color:'#ef4444',whiteSpace:'nowrap',fontSize:15}}>${fmtN(item.amount)}</div>
+            </div>
+            <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+              <span style={{fontSize:11,color:SUB}}>{new Date(item.date+'T12:00').toLocaleDateString('es-AR',{day:'2-digit',month:'short',year:'numeric'})}</span>
+              <select value={item.catId} onChange={e=>setPending(p=>p.map((x,j)=>j===i?{...x,catId:e.target.value}:x))} style={{...INP,width:'auto',padding:'4px 8px',fontSize:12,marginLeft:'auto',flex:1,maxWidth:200}}>
+                {expCats.map(c=><option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
+              </select>
+              <button onClick={()=>setPending(p=>p.filter((_,j)=>j!==i))} style={{background:'none',border:'none',color:MUTED,cursor:'pointer',fontSize:18,padding:0,lineHeight:1}}>✕</button>
+            </div>
+          </div>
+        ))}
+        <button onClick={confirm} style={{background:'#22c55e',color:'white',border:'none',borderRadius:10,padding:'14px',fontSize:15,fontWeight:700,cursor:'pointer',width:'100%',marginTop:8}}>
+          ✓ Confirmar todas ({pending.length} compras)
+        </button>
+      </>}
+    </div>
+  );
+}
+
+// ── ConfigTab ─────────────────────────────────────────────────────────────────
+function ConfigTab({cats,setCats,apiKey,setApiKey}){
+  const [editing,setEditing]=useState(null);
+  const [adding,setAdding]=useState(null);
+  const [nc,setNc]=useState({name:'',icon:'📌',color:'#6366f1'});
+  const [showKey,setShowKey]=useState(false);
+  const [keyInput,setKeyInput]=useState(apiKey||'');
+  const ICONS=['📌','💼','🎸','📋','💰','🏠','🛒','🚗','💊','👕','🎉','🍔','💻','📚','🔧','📄','🧾','📦','💵','🏦','₿','🏆','🎵','🎯','🌟','💡','🎪','🛍️','✈️','🎮'];
+  const COLS=['#22c55e','#3b82f6','#a855f7','#f59e0b','#ef4444','#f97316','#eab308','#ec4899','#8b5cf6','#6366f1','#14b8a6','#06b6d4','#10b981','#84cc16','#facc15','#fb923c','#94a3b8','#f43f5e'];
+  const SL={income:'💚 Ingresos',expense:'❤️ Egresos',saving:'💙 Ahorros / Inversiones'};
+  const INP2={background:BG,border:'1px solid '+BORDER,borderRadius:8,padding:'8px 10px',color:TEXT,fontSize:14,width:'100%',boxSizing:'border-box',outline:'none'};
+  const saveKey=()=>{const k=keyInput.trim();setApiKey(k);store.set('apiKey',k);alert('API Key guardada ✓');};
+  const addCat=type=>{if(!nc.name.trim())return;const id=type[0]+gid();const cat={id,name:nc.name.trim(),icon:nc.icon,color:nc.color,...(type==='expense'?{limit:null}:{})};setCats(p=>({...p,[type]:[...p[type],cat]}));setAdding(null);setNc({name:'',icon:'📌',color:'#6366f1'});};
+  const delCat=(type,id)=>{if(window.confirm('¿Borrar categoría?'))setCats(p=>({...p,[type]:p[type].filter(c=>c.id!==id)}));};
+  const setLimit=(id,val)=>setCats(p=>({...p,expense:p.expense.map(c=>c.id===id?{...c,limit:val?Number(val):null}:c)}));
+  const ri=(type,id,field,val)=>setCats(p=>({...p,[type]:p[type].map(c=>c.id===id?{...c,[field]:val}:c)}));
+  return(
+    <div style={{padding:'16px'}}>
+      <div style={{fontWeight:800,fontSize:18,marginBottom:20}}>⚙️ Configuración</div>
+      <div style={{background:CARD,borderRadius:12,padding:'16px',marginBottom:24}}>
+        <div style={{fontWeight:700,fontSize:15,marginBottom:4}}>🔑 API Key de Anthropic</div>
+        <div style={{fontSize:12,color:SUB,marginBottom:12}}>Necesaria para analizar PDFs de tarjeta. Obtenela en <span style={{color:'#818cf8'}}>console.anthropic.com</span></div>
+        <div style={{display:'flex',gap:8}}>
+          <input type={showKey?'text':'password'} value={keyInput} onChange={e=>setKeyInput(e.target.value)} placeholder="sk-ant-..." style={{...INP2,flex:1,fontFamily:'monospace',fontSize:12}}/>
+          <button onClick={()=>setShowKey(s=>!s)} style={{background:BORDER,border:'none',color:TEXT,borderRadius:8,padding:'8px 10px',cursor:'pointer',fontSize:14}}>{showKey?'🙈':'👁️'}</button>
+        </div>
+        <button onClick={saveKey} style={{background:'#6366f1',color:'white',border:'none',borderRadius:8,padding:'10px',fontWeight:700,cursor:'pointer',width:'100%',marginTop:10,fontSize:14}}>Guardar API Key</button>
+      </div>
+      {['income','expense','saving'].map(type=>(
+        <div key={type} style={{marginBottom:28}}>
+          <div style={{fontWeight:700,fontSize:16,marginBottom:12}}>{SL[type]}</div>
+          {cats[type].map(cat=>(
+            <div key={cat.id} style={{background:CARD,borderRadius:10,padding:'12px 14px',marginBottom:8}}>
+              <div style={{display:'flex',alignItems:'center',gap:10}}>
+                <div style={{width:38,height:38,borderRadius:'50%',background:cat.color+'33',display:'flex',alignItems:'center',justifyContent:'center',fontSize:20,flexShrink:0}}>{cat.icon}</div>
+                <div style={{flex:1}}>
+                  <div style={{fontWeight:600,fontSize:14}}>{cat.name}</div>
+                  {type==='expense'&&cat.limit&&<div style={{fontSize:11,color:MUTED}}>Límite: ${fmtN(cat.limit)}/mes</div>}
+                </div>
+                <button onClick={()=>setEditing(editing===cat.id?null:cat.id)} style={{background:'none',border:'none',color:editing===cat.id?'#6366f1':SUB,cursor:'pointer',fontSize:16,padding:'4px'}}>✏️</button>
+                <button onClick={()=>delCat(type,cat.id)} style={{background:'none',border:'none',color:'#ef4444',cursor:'pointer',fontSize:16,padding:'4px'}}>🗑️</button>
+              </div>
+              {editing===cat.id&&(
+                <div style={{marginTop:12,paddingTop:12,borderTop:'1px solid '+BORDER,display:'flex',flexDirection:'column',gap:10}}>
+                  <input value={cat.name} onChange={e=>ri(type,cat.id,'name',e.target.value)} style={INP2} placeholder="Nombre"/>
+                  {type==='expense'&&<div>
+                    <div style={{fontSize:11,color:SUB,marginBottom:5}}>LÍMITE MENSUAL (vacío = sin límite)</div>
+                    <input type="number" inputMode="decimal" defaultValue={cat.limit||''} onBlur={e=>setLimit(cat.id,e.target.value)} placeholder="ej: 150000" style={{...INP2,width:'60%'}}/>
+                  </div>}
+                  <div>
+                    <div style={{fontSize:11,color:SUB,marginBottom:5}}>ÍCONO</div>
+                    <div style={{display:'flex',flexWrap:'wrap',gap:5}}>{ICONS.map(ic=><button key={ic} onClick={()=>ri(type,cat.id,'icon',ic)} style={{background:cat.icon===ic?'#6366f1':'#334155',border:'none',borderRadius:6,padding:'4px 6px',fontSize:17,cursor:'pointer'}}>{ic}</button>)}</div>
+                  </div>
+                  <div>
+                    <div style={{fontSize:11,color:SUB,marginBottom:5}}>COLOR</div>
+                    <div style={{display:'flex',flexWrap:'wrap',gap:6}}>{COLS.map(col=><button key={col} onClick={()=>ri(type,cat.id,'color',col)} style={{width:28,height:28,background:col,border:cat.color===col?'3px solid white':'3px solid transparent',borderRadius:'50%',cursor:'pointer'}}/>)}</div>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+          {adding===type?(
+            <div style={{background:CARD,borderRadius:10,padding:'14px',marginBottom:8}}>
+              <div style={{fontWeight:600,marginBottom:12,fontSize:14}}>Nueva categoría</div>
+              <input value={nc.name} onChange={e=>setNc(p=>({...p,name:e.target.value}))} placeholder="Nombre" style={{...INP2,marginBottom:10}}/>
+              <div style={{fontSize:11,color:SUB,marginBottom:6}}>ÍCONO</div>
+              <div style={{display:'flex',flexWrap:'wrap',gap:5,marginBottom:10}}>{ICONS.map(ic=><button key={ic} onClick={()=>setNc(p=>({...p,icon:ic}))} style={{background:nc.icon===ic?'#6366f1':'#334155',border:'none',borderRadius:6,padding:'4px 6px',fontSize:17,cursor:'pointer'}}>{ic}</button>)}</div>
+              <div style={{fontSize:11,color:SUB,marginBottom:6}}>COLOR</div>
+              <div style={{display:'flex',flexWrap:'wrap',gap:6,marginBottom:14}}>{COLS.map(col=><button key={col} onClick={()=>setNc(p=>({...p,color:col}))} style={{width:28,height:28,background:col,border:nc.color===col?'3px solid white':'3px solid transparent',borderRadius:'50%',cursor:'pointer'}}/>)}</div>
+              <div style={{display:'flex',gap:8}}>
+                <button onClick={()=>addCat(type)} style={{flex:1,background:'#22c55e',color:'white',border:'none',borderRadius:8,padding:10,fontWeight:700,cursor:'pointer'}}>Agregar</button>
+                <button onClick={()=>setAdding(null)} style={{flex:1,background:BORDER,color:TEXT,border:'none',borderRadius:8,padding:10,cursor:'pointer'}}>Cancelar</button>
+              </div>
+            </div>
+          ):(
+            <button onClick={()=>{setAdding(type);setNc({name:'',icon:'📌',color:'#6366f1'});}} style={{background:'none',border:'1px dashed '+BORDER,borderRadius:10,padding:'10px 14px',color:SUB,cursor:'pointer',width:'100%',fontSize:13,boxSizing:'border-box'}}>
+              + Agregar categoría
+            </button>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── App ───────────────────────────────────────────────────────────────────────
+function App(){
+  const now=new Date();
+  const [tab,setTab]=useState('home');
+  const [month,setMonth]=useState(now.getMonth());
+  const [year,setYear]=useState(now.getFullYear());
+  const [txs,setTxs]=useState([]);
+  const [cats,setCats]=useState(CATS0);
+  const [modal,setModal]=useState(null);
+  const [apiKey,setApiKey]=useState('');
+  const [ready,setReady]=useState(false);
+
+  useEffect(()=>{
+    const t=store.get('txs2');if(t)try{setTxs(JSON.parse(t));}catch(e){}
+    const c=store.get('cats2');if(c)try{setCats(JSON.parse(c));}catch(e){}
+    const k=store.get('apiKey');if(k)setApiKey(k);
+    setReady(true);
+  },[]);
+  useEffect(()=>{if(ready)store.set('txs2',JSON.stringify(txs));},[txs,ready]);
+  useEffect(()=>{if(ready)store.set('cats2',JSON.stringify(cats));},[cats,ready]);
+
+  const navMonth=d=>{let m=month+d,y=year;if(m<0){m=11;y--;}if(m>11){m=0;y++;}setMonth(m);setYear(y);};
+  const monthTxs=txs.filter(t=>{const d=new Date(t.date+'T12:00');return d.getMonth()===month&&d.getFullYear()===year;});
+  const allCats=[...cats.income,...cats.expense,...cats.saving];
+  const getCat=id=>allCats.find(c=>c.id===id)||{name:'Sin categoría',color:'#666',icon:'❓'};
+  const addTx=tx=>{setTxs(p=>[{...tx,id:gid()},...p]);setModal(null);};
+  const delTx=id=>setTxs(p=>p.filter(t=>t.id!==id));
+  const doExport=()=>exportToExcel(txs,cats);
+  const TABS=[['home','🏠','Inicio'],['txs','📋','Mov.'],['stats','📊','Stats'],['card','💳','Tarjeta'],['config','⚙️','Config']];
+
+  if(!ready)return(
+    <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',flexDirection:'column',gap:12,color:SUB}}>
+      <div style={{fontSize:42}}>💰</div><div>Cargando...</div>
+    </div>
+  );
+  return(
+    <div style={{background:BG,minHeight:'100vh',color:TEXT,fontFamily:'-apple-system,BlinkMacSystemFont,system-ui,sans-serif',paddingBottom:80,maxWidth:480,margin:'0 auto'}}>
+      {tab==='home'&&<HomeTab month={month} year={year} navMonth={navMonth} txs={monthTxs} cats={cats} getCat={getCat} onDel={delTx} onAdd={setModal} onExport={doExport}/>}
+      {tab==='txs'&&<TxsTab month={month} year={year} navMonth={navMonth} txs={monthTxs} getCat={getCat} onDel={delTx}/>}
+      {tab==='stats'&&<StatsTab txs={txs} getCat={getCat} onExport={doExport}/>}
+      {tab==='card'&&<CardTab cats={cats} onConfirmAll={items=>{setTxs(p=>[...items,...p]);}} apiKey={apiKey}/>}
+      {tab==='config'&&<ConfigTab cats={cats} setCats={setCats} apiKey={apiKey} setApiKey={setApiKey}/>}
+      {tab==='txs'&&(
+        <div style={{position:'fixed',right:16,bottom:88,display:'flex',flexDirection:'column',gap:10,zIndex:40}}>
+          {[['saving','↺','#0ea5e9'],['expense','−','#ef4444'],['income','+','#22c55e']].map(([type,icon,color])=>(
+            <button key={type} onClick={()=>setModal({type})} style={{width:52,height:52,borderRadius:'50%',background:color,color:'white',border:'none',fontSize:type==='saving'?20:28,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',boxShadow:`0 4px 20px ${color}66`,lineHeight:1}}>
+              {icon}
+            </button>
+          ))}
+        </div>
+      )}
+      <nav style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:480,background:'#0c1526',borderTop:'1px solid '+BORDER,display:'flex',zIndex:50,paddingBottom:'env(safe-area-inset-bottom,0px)'}}>
+        {TABS.map(([t,icon,label])=>(
+          <button key={t} onClick={()=>setTab(t)} style={{flex:1,background:'none',border:'none',color:tab===t?'#22c55e':MUTED,padding:'10px 0 8px',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:2}}>
+            <span style={{fontSize:20}}>{icon}</span>
+            <span style={{fontSize:10,fontWeight:tab===t?700:400}}>{label}</span>
+          </button>
+        ))}
+      </nav>
+      {modal&&<AddModal type={modal.type} cats={cats} onSave={addTx} onClose={()=>setModal(null)}/>}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
